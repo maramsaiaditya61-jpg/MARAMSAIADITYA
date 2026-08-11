@@ -1,0 +1,19 @@
+"""
+protection.py
+Threshold-based protection checks: overvoltage, undervoltage,
+overcurrent, overtemperature (proxy for short-circuit / thermal runaway risk).
+"""
+
+
+def check_protection(voltage, current, temperature,
+                      v_max=4.2, v_min=2.5, i_max=6.8, t_max=60.0):
+    faults = []
+    if voltage > v_max:
+        faults.append("OVERVOLTAGE")
+    if voltage < v_min:
+        faults.append("UNDERVOLTAGE")
+    if abs(current) > i_max:
+        faults.append("OVERCURRENT")
+    if temperature > t_max:
+        faults.append("OVERTEMPERATURE")
+    return faults
