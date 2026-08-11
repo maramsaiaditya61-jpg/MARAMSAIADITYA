@@ -1,0 +1,24 @@
+Power Sources
+Internal Combustion Engine (ICE)
+Parameter	Typical Value (assumed)
+Max Power	75 kW @ 5200 rpm
+Max Torque	142 Nm @ 3600 rpm
+Fuel Type	Petrol (Atkinson cycle)
+Peak Efficiency	~38–40%
+Electric Motor
+Parameter	Typical Value (assumed)
+Max Power	60 kW
+Max Torque	207 Nm
+Efficiency	~90–95%
+Battery Capacity	1.3–8 kWh (depending on hybrid vs plug-in)
+Battery Type	Li-ion / NiMH
+> Update these tables with real datasheet values in `data/component_specs.csv`
+> once specific make/model components are chosen.
+Dataset Links
+Kaggle — driving cycle / energy dataset (used for energy analysis example):
+add exact URL here once confirmed from source
+Kaggle — hybrid/EV driving cycle dataset: add exact URL here once confirmed
+Reference Repositories
+HEV simulation (GitHub) — link in project brief
+Hybrid vehicle power-flow modeling (GitHub) — link in project brief
+MATLAB/Simulink HEV examples — MathWorks Powertrain Blockset documentation
