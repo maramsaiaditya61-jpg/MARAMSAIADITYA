@@ -1,0 +1,18 @@
+"""
+balancing.py
+Passive (resistive bleed) cell balancing strategy.
+Any cell whose voltage exceeds the pack minimum by more than `threshold_V`
+gets an extra bleed current applied to bring it back in line.
+"""
+
+
+def passive_balance(voltages, bleed_current_A=0.1, threshold_V=0.02):
+    """
+    voltages : list of per-cell terminal voltages
+    Returns  : list of extra discharge (bleed) currents, one per cell
+    """
+    v_min = min(voltages)
+    bleed = []
+    for v in voltages:
+        bleed.append(bleed_current_A if (v - v_min) > threshold_V else 0.0)
+    return bleed
