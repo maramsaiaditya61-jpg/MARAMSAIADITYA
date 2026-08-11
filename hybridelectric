@@ -1,0 +1,14 @@
+hybrid-vehicle-power-flow-design/
+├── README.md
+├── docs/
+│   ├── 01_configuration.md      # series/parallel/series-parallel choice
+│   ├── 02_power_sources.md      # ICE + motor specs
+│   └── block_diagram.png        # system power flow diagram
+├── data/
+│   └── component_specs.csv      # engine power, battery capacity, motor eff.
+├── notebooks/
+│   └── power_flow_analysis.ipynb # energy calc, torque/speed split, fuel use
+├── simulink/
+│   └── hev_model.slx            # if using MATLAB/Simulink
+└── results/
+    └── efficiency_plots.png
