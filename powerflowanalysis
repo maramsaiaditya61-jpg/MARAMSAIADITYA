@@ -1,0 +1,432 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "e80a8bea",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "\"\"\"\n",
+    "Hybrid Electric Vehicle - Power Flow Analysis\n",
+    "================================================\n",
+    "Steps covered:\n",
+    "5. Energy flow calculation for driving cycles\n",
+    "6. Torque & speed distribution model\n",
+    "7. Power split & fuel consumption simulation\n",
+    "8. Efficiency analysis under varying load/speed\n",
+    "9. Power distribution optimization\n",
+    "\n",
+    "Convert this to a Jupyter notebook with: jupyter nbconvert --to notebook power_flow_analysis.py\n",
+    "or just run it directly as a script.\n",
+    "\"\"\""
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "85d11b09",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import numpy as np\n",
+    "import pandas as pd\n",
+    "import matplotlib.pyplot as plt"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "52bd42a8",
+   "metadata": {
+    "lines_to_next_cell": 1
+   },
+   "outputs": [],
+   "source": [
+    "# -----------------------------------------------------------------------\n",
+    "# 1. Load component specs\n",
+    "# -----------------------------------------------------------------------\n",
+    "specs = pd.read_csv(\"../data/component_specs.csv\")\n",
+    "print(specs)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "dbb1fb60",
+   "metadata": {
+    "lines_to_next_cell": 1
+   },
+   "outputs": [],
+   "source": [
+    "def get_spec(component, parameter):\n",
+    "    row = specs[(specs.component == component) & (specs.parameter == parameter)]\n",
+    "    return float(row[\"value\"].iloc[0])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "77c1bfb0",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ICE_MAX_POWER = get_spec(\"ICE\", \"max_power\") * 1000       # W\n",
+    "ICE_EFF = get_spec(\"ICE\", \"peak_efficiency\") / 100         # fraction\n",
+    "MOTOR_MAX_POWER = get_spec(\"Motor\", \"max_power\") * 1000    # W\n",
+    "MOTOR_EFF = get_spec(\"Motor\", \"efficiency\") / 100           # fraction\n",
+    "BATTERY_CAPACITY = get_spec(\"Battery\", \"capacity\") * 3.6e6  # J (kWh -> J)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "51ac6fbc",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "MASS = get_spec(\"Vehicle\", \"mass\")           # kg\n",
+    "CD = get_spec(\"Vehicle\", \"drag_coefficient\")\n",
+    "AREA = get_spec(\"Vehicle\", \"frontal_area\")   # m^2\n",
+    "CRR = get_spec(\"Vehicle\", \"rolling_resistance\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "8bb99fb2",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "RHO_AIR = 1.225   # kg/m^3\n",
+    "G = 9.81          # m/s^2\n",
+    "FUEL_ENERGY_DENSITY = 34.2e6  # J/L (petrol)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "c9049c6e",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# -----------------------------------------------------------------------\n",
+    "# 2. Driving cycle (replace with real dataset from data/ once downloaded)\n",
+    "# Simple synthetic cycle for demonstration: speed (km/h) vs time (s)\n",
+    "# -----------------------------------------------------------------------\n",
+    "t = np.arange(0, 200, 1)  # seconds\n",
+    "speed_kmh = 40 + 30 * np.sin(2 * np.pi * t / 100) + 10 * np.sin(2 * np.pi * t / 20)\n",
+    "speed_kmh = np.clip(speed_kmh, 0, None)\n",
+    "speed_ms = speed_kmh / 3.6"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "b80b00c0",
+   "metadata": {
+    "lines_to_next_cell": 1
+   },
+   "outputs": [],
+   "source": [
+    "df = pd.DataFrame({\"time_s\": t, \"speed_kmh\": speed_kmh, \"speed_ms\": speed_ms})\n",
+    "df[\"accel_ms2\"] = np.gradient(df[\"speed_ms\"], df[\"time_s\"])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "0349fb65",
+   "metadata": {
+    "lines_to_next_cell": 1
+   },
+   "outputs": [],
+   "source": [
+    "# -----------------------------------------------------------------------\n",
+    "# 3. Road load / power demand model\n",
+    "#    P_demand = (F_aero + F_roll + F_accel) * v\n",
+    "# -----------------------------------------------------------------------\n",
+    "def power_demand(row):\n",
+    "    v = row[\"speed_ms\"]\n",
+    "    a = row[\"accel_ms2\"]\n",
+    "    f_aero = 0.5 * RHO_AIR * CD * AREA * v**2\n",
+    "    f_roll = CRR * MASS * G if v > 0 else 0\n",
+    "    f_accel = MASS * a\n",
+    "    f_total = f_aero + f_roll + f_accel\n",
+    "    return f_total * v  # Watts"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "17da907d",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "df[\"power_demand_W\"] = df.apply(power_demand, axis=1)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "9c7a451f",
+   "metadata": {
+    "lines_to_next_cell": 1
+   },
+   "outputs": [],
+   "source": [
+    "# -----------------------------------------------------------------------\n",
+    "# 4. Power split strategy (rule-based, simple)\n",
+    "#    - Below a threshold: motor only (EV mode)\n",
+    "#    - Above threshold: ICE handles base load, motor assists peaks\n",
+    "#    - Negative power (braking): regenerative braking charges battery\n",
+    "# -----------------------------------------------------------------------\n",
+    "EV_THRESHOLD_W = 15_000  # below this, pure electric"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "834e5440",
+   "metadata": {
+    "lines_to_next_cell": 1
+   },
+   "outputs": [],
+   "source": [
+    "def split_power(p_demand):\n",
+    "    if p_demand <= 0:\n",
+    "        # regenerative braking - motor absorbs, battery charges\n",
+    "        return {\"ice_power\": 0, \"motor_power\": p_demand, \"regen\": True}\n",
+    "    if p_demand <= EV_THRESHOLD_W:\n",
+    "        return {\"ice_power\": 0, \"motor_power\": min(p_demand, MOTOR_MAX_POWER), \"regen\": False}\n",
+    "    ice_power = min(p_demand, ICE_MAX_POWER)\n",
+    "    motor_power = max(0, p_demand - ice_power)\n",
+    "    motor_power = min(motor_power, MOTOR_MAX_POWER)\n",
+    "    return {\"ice_power\": ice_power, \"motor_power\": motor_power, \"regen\": False}"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "f5f1234e",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "split_results = df[\"power_demand_W\"].apply(split_power).apply(pd.Series)\n",
+    "df = pd.concat([df, split_results], axis=1)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "d481eded",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# -----------------------------------------------------------------------\n",
+    "# 5. Fuel consumption from ICE power draw\n",
+    "# -----------------------------------------------------------------------\n",
+    "df[\"fuel_energy_J\"] = df[\"ice_power\"] / ICE_EFF  # energy input required\n",
+    "df[\"fuel_volume_L\"] = df[\"fuel_energy_J\"] / FUEL_ENERGY_DENSITY\n",
+    "total_fuel_L = df[\"fuel_volume_L\"].sum()  # per-second sum ~ integral since dt=1s"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "143be4da",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# -----------------------------------------------------------------------\n",
+    "# 6. Battery energy balance\n",
+    "# -----------------------------------------------------------------------\n",
+    "df[\"battery_energy_J\"] = np.where(\n",
+    "    df[\"regen\"],\n",
+    "    df[\"motor_power\"] * MOTOR_EFF,          # regen: energy recovered (negative motor_power * eff)\n",
+    "    -df[\"motor_power\"] / MOTOR_EFF          # discharge: energy drawn from battery\n",
+    ")\n",
+    "net_battery_change_J = df[\"battery_energy_J\"].sum()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "67c20a3d",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# -----------------------------------------------------------------------\n",
+    "# 7. Torque & speed distribution (simplified, wheel radius assumption)\n",
+    "# -----------------------------------------------------------------------\n",
+    "WHEEL_RADIUS = 0.30  # m\n",
+    "df[\"wheel_speed_rad_s\"] = df[\"speed_ms\"] / WHEEL_RADIUS\n",
+    "df[\"ice_torque_Nm\"] = np.where(df[\"wheel_speed_rad_s\"] > 0,\n",
+    "                                 df[\"ice_power\"] / df[\"wheel_speed_rad_s\"], 0)\n",
+    "df[\"motor_torque_Nm\"] = np.where(df[\"wheel_speed_rad_s\"] > 0,\n",
+    "                                   df[\"motor_power\"] / df[\"wheel_speed_rad_s\"], 0)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "b33d5aaf",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# -----------------------------------------------------------------------\n",
+    "# 8. Efficiency analysis\n",
+    "# -----------------------------------------------------------------------\n",
+    "total_demand_J = df[\"power_demand_W\"].clip(lower=0).sum()\n",
+    "total_input_J = df[\"fuel_energy_J\"].sum() + df.loc[~df[\"regen\"], \"motor_power\"].sum() / MOTOR_EFF\n",
+    "overall_efficiency = total_demand_J / total_input_J if total_input_J else 0"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "4113a470",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "print(f\"\\nTotal fuel consumed: {total_fuel_L:.3f} L over {t[-1]} s\")\n",
+    "print(f\"Net battery energy change: {net_battery_change_J/3.6e6:.4f} kWh\")\n",
+    "print(f\"Overall system efficiency (demand/input): {overall_efficiency*100:.1f}%\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "c5f86b79",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# -----------------------------------------------------------------------\n",
+    "# 9. Plots\n",
+    "# -----------------------------------------------------------------------\n",
+    "fig, axes = plt.subplots(3, 1, figsize=(10, 9), sharex=True)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "19b36847",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "axes[0].plot(df[\"time_s\"], df[\"speed_kmh\"])\n",
+    "axes[0].set_ylabel(\"Speed (km/h)\")\n",
+    "axes[0].set_title(\"Driving Cycle\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "359b186d",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "axes[1].plot(df[\"time_s\"], df[\"ice_power\"]/1000, label=\"ICE power (kW)\")\n",
+    "axes[1].plot(df[\"time_s\"], df[\"motor_power\"]/1000, label=\"Motor power (kW)\")\n",
+    "axes[1].set_ylabel(\"Power (kW)\")\n",
+    "axes[1].legend()\n",
+    "axes[1].set_title(\"Power Split\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "d12906ad",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "axes[2].plot(df[\"time_s\"], df[\"ice_torque_Nm\"], label=\"ICE torque (Nm)\")\n",
+    "axes[2].plot(df[\"time_s\"], df[\"motor_torque_Nm\"], label=\"Motor torque (Nm)\")\n",
+    "axes[2].set_ylabel(\"Torque (Nm)\")\n",
+    "axes[2].set_xlabel(\"Time (s)\")\n",
+    "axes[2].legend()\n",
+    "axes[2].set_title(\"Torque Distribution\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "3cdc4c24",
+   "metadata": {
+    "lines_to_next_cell": 1
+   },
+   "outputs": [],
+   "source": [
+    "plt.tight_layout()\n",
+    "plt.savefig(\"../results/efficiency_plots.png\", dpi=150)\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "79590df6",
+   "metadata": {
+    "lines_to_next_cell": 1
+   },
+   "outputs": [],
+   "source": [
+    "# -----------------------------------------------------------------------\n",
+    "# 10. Simple optimization: sweep EV_THRESHOLD to minimize fuel while\n",
+    "#     keeping battery net energy change >= -0.05 kWh (avoid excessive drain)\n",
+    "# -----------------------------------------------------------------------\n",
+    "def simulate(threshold_W):\n",
+    "    d = df.copy()\n",
+    "    def split(p):\n",
+    "        if p <= 0:\n",
+    "            return 0, p\n",
+    "        if p <= threshold_W:\n",
+    "            return 0, min(p, MOTOR_MAX_POWER)\n",
+    "        ice = min(p, ICE_MAX_POWER)\n",
+    "        mot = min(max(0, p - ice), MOTOR_MAX_POWER)\n",
+    "        return ice, mot\n",
+    "    ice_p, mot_p = zip(*d[\"power_demand_W\"].apply(split))\n",
+    "    fuel_L = (np.array(ice_p) / ICE_EFF / FUEL_ENERGY_DENSITY).sum()\n",
+    "    batt_change = np.where(d[\"power_demand_W\"] <= 0,\n",
+    "                            np.array(mot_p) * MOTOR_EFF,\n",
+    "                            -np.array(mot_p) / MOTOR_EFF).sum()\n",
+    "    return fuel_L, batt_change / 3.6e6  # L, kWh"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "dcd409ec",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "thresholds = np.arange(0, 40_000, 2000)\n",
+    "sweep = [simulate(th) for th in thresholds]\n",
+    "sweep_df = pd.DataFrame(sweep, columns=[\"fuel_L\", \"battery_kWh\"])\n",
+    "sweep_df[\"threshold_kW\"] = thresholds / 1000"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "43348912",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "valid = sweep_df[sweep_df[\"battery_kWh\"] >= -0.05]\n",
+    "best = valid.loc[valid[\"fuel_L\"].idxmin()] if not valid.empty else sweep_df.loc[sweep_df[\"fuel_L\"].idxmin()]\n",
+    "print(f\"\\nOptimal EV threshold: {best['threshold_kW']:.1f} kW \"\n",
+    "      f\"-> fuel {best['fuel_L']:.3f} L, battery change {best['battery_kWh']:.4f} kWh\")"
+   ]
+  }
+ ],
+ "metadata": {
+  "jupytext": {
+   "cell_metadata_filter": "-all",
+   "main_language": "python",
+   "notebook_metadata_filter": "-all"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
