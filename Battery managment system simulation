@@ -1,0 +1,63 @@
+"""
+battery_model.py
+Equivalent Circuit Model (1RC) battery cell with Coulomb-counting SOC
+and a simple cycle-based SOH (capacity fade) model.
+"""
+
+import numpy as np
+
+
+class BatteryCell:
+    def __init__(self, capacity_Ah=3.4, soc=1.0, R0=0.05, R1=0.02, C1=2000,
+                 soh=1.0, cell_id=0):
+        """
+        capacity_Ah : nominal (fresh) capacity in Ah
+        soc         : initial state of charge (0-1)
+        R0          : ohmic internal resistance (ohm)
+        R1, C1      : RC pair modelling transient polarization
+        soh         : initial state of health (0-1)
+        """
+        self.nominal_capacity = capacity_Ah
+        self.soh = soh
+        self.capacity_Ah = capacity_Ah * soh
+        self.soc = soc
+        self.R0 = R0
+        self.R1 = R1
+        self.C1 = C1
+        self.v_rc = 0.0
+        self.cell_id = cell_id
+        self.cycle_count = 0.0
+
+    def ocv(self, soc):
+        """Simple 3rd-order polynomial OCV-SOC curve, ~3.3V (empty) to 4.2V (full).
+        Coefficients are illustrative; replace with datasheet-fitted values for
+        higher accuracy."""
+        s = np.clip(soc, 0.0, 1.0)
+        return 3.3 + 0.9 * s - 0.5 * s ** 2 + 0.5 * s ** 3
+
+    def update(self, current_A, dt_s):
+        """
+        Advance the cell state by dt_s seconds.
+        current_A : positive = discharge, negative = charge
+        Returns terminal voltage (V).
+        """
+        dt_h = dt_s / 3600.0
+
+        # Coulomb counting
+        self.soc -= (current_A * dt_h) / self.capacity_Ah
+        self.soc = float(np.clip(self.soc, 0.0, 1.0))
+
+        # First-order RC branch (discrete update)
+        tau = self.R1 * self.C1
+        alpha = dt_s / (tau + dt_s) if tau > 0 else 1.0
+        self.v_rc += alpha * (current_A * self.R1 - self.v_rc)
+
+        v_terminal = self.ocv(self.soc) - current_A * self.R0 - self.v_rc
+        return v_terminal
+
+    def degrade(self, cycle_fraction, fade_per_cycle=0.0002):
+        """Call once per timestep/segment with the equivalent full-cycle
+        fraction consumed, to age the cell (simple linear fade, floored at 70% SOH)."""
+        self.cycle_count += cycle_fraction
+        self.soh = max(0.7, 1.0 - fade_per_cycle * self.cycle_count)
+        self.capacity_Ah = self.nominal_capacity * self.soh
