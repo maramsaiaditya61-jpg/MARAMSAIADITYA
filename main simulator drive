@@ -1,0 +1,152 @@
+"""
+main.py
+Full Battery Management System (BMS) simulation:
+  1. CC-CV charge with passive cell balancing
+  2. Discharge under a synthetic driving-cycle load
+  3. Thermal tracking + protection monitoring throughout
+  4. Plots + summary saved to disk
+
+Run:  python main.py
+"""
+
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+from bms_sim.battery_model import BatteryCell
+from bms_sim.thermal_model import ThermalModel
+from bms_sim.balancing import passive_balance
+from bms_sim.protection import check_protection
+from bms_sim.load_profiles import synthetic_driving_cycle
+
+DT = 1.0          # simulation timestep (s)
+N_CELLS = 6        # series cells in the pack
+CELL_CAPACITY_AH = 3.4
+V_TARGET_CELL = 4.2
+CHARGE_CURRENT_A = -3.4   # 1C charge (negative = charging convention)
+MAX_CHARGE_TIME_S = 3600 * 2
+DISCHARGE_DURATION_S = 1800
+
+
+def build_pack(seed=1):
+    rng = np.random.default_rng(seed)
+    cells = []
+    for i in range(N_CELLS):
+        soc0 = float(np.clip(0.30 + 0.02 * rng.standard_normal(), 0.05, 0.95))
+        r0 = float(max(0.02, 0.05 + 0.005 * rng.standard_normal()))
+        cells.append(BatteryCell(capacity_Ah=CELL_CAPACITY_AH, soc=soc0, R0=r0, cell_id=i))
+    return cells
+
+
+def new_log():
+    return {"t": [], "soc": [[] for _ in range(N_CELLS)], "v": [[] for _ in range(N_CELLS)],
+            "T": [], "faults": [], "pack_v": [], "current": []}
+
+
+def record(log, t_s, cells, v_terms, T, current, faults):
+    for i, c in enumerate(cells):
+        log["soc"][i].append(c.soc)
+        log["v"][i].append(v_terms[i])
+    log["t"].append(t_s / 60.0)
+    log["T"].append(T)
+    log["faults"].append(faults)
+    log["pack_v"].append(sum(v_terms))
+    log["current"].append(current)
+
+
+def run_simulation():
+    cells = build_pack()
+    thermal = ThermalModel()
+    log = new_log()
+
+    # ---------------- Phase 1: CC-CV charge with balancing ----------------
+    t = 0.0
+    cc_current = CHARGE_CURRENT_A
+    while t < MAX_CHARGE_TIME_S:
+        est_voltages = [c.ocv(c.soc) for c in cells]
+        bleed = passive_balance(est_voltages)
+        currents = [cc_current + b for b in bleed]  # bleed = extra discharge
+
+        v_terms = [c.update(i_cell, DT) for c, i_cell in zip(cells, currents)]
+        avg_current = float(np.mean(currents))
+        T = thermal.update(avg_current, cells[0].R0, DT)
+
+        faults = []
+        for v in v_terms:
+            faults += check_protection(v, avg_current, T)
+
+        record(log, t, cells, v_terms, T, avg_current, faults)
+        t += DT
+
+        if max(v_terms) >= V_TARGET_CELL:
+            cc_current *= 0.98  # taper current -> approximate CV phase
+            if abs(cc_current) < 0.1:
+                break
+
+    # ---------------- Phase 2: discharge under driving-cycle load ----------------
+    discharge_profile = synthetic_driving_cycle(DISCHARGE_DURATION_S, DT)
+    for i_load in discharge_profile:
+        v_terms = [c.update(i_load, DT) for c in cells]
+        T = thermal.update(i_load, cells[0].R0, DT)
+
+        faults = []
+        for v in v_terms:
+            faults += check_protection(v, i_load, T)
+
+        record(log, t, cells, v_terms, T, i_load, faults)
+        t += DT
+
+    # age the pack a small amount for the SOH demo
+    for c in cells:
+        c.degrade(cycle_fraction=0.15)
+
+    return log, cells
+
+
+def plot_results(log, out_path="bms_simulation_results.png"):
+    t = log["t"]
+    fig, axs = plt.subplots(2, 2, figsize=(12, 8))
+
+    for i in range(N_CELLS):
+        axs[0, 0].plot(t, log["soc"][i], label=f"Cell {i+1}")
+    axs[0, 0].set_title("SOC vs Time")
+    axs[0, 0].set_xlabel("Time (min)"); axs[0, 0].set_ylabel("SOC")
+    axs[0, 0].legend(fontsize=7)
+
+    for i in range(N_CELLS):
+        axs[0, 1].plot(t, log["v"][i], label=f"Cell {i+1}")
+    axs[0, 1].set_title("Cell Voltage vs Time")
+    axs[0, 1].set_xlabel("Time (min)"); axs[0, 1].set_ylabel("Voltage (V)")
+    axs[0, 1].legend(fontsize=7)
+
+    axs[1, 0].plot(t, log["T"], color="tab:red")
+    axs[1, 0].set_title("Pack Temperature vs Time")
+    axs[1, 0].set_xlabel("Time (min)"); axs[1, 0].set_ylabel("Temp (°C)")
+
+    axs[1, 1].plot(t, log["current"], color="tab:green")
+    axs[1, 1].set_title("Current Profile (+ discharge / - charge)")
+    axs[1, 1].set_xlabel("Time (min)"); axs[1, 1].set_ylabel("Current (A)")
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    print(f"Saved plot: {out_path}")
+
+
+def summarize(log, cells):
+    n_faults = sum(len(f) for f in log["faults"])
+    print(f"Total protection events triggered: {n_faults}")
+    if n_faults:
+        types = set()
+        for f in log["faults"]:
+            types.update(f)
+        print("Fault types observed:", types)
+    print("Final SOC per cell: ", [round(c.soc, 3) for c in cells])
+    print("Final SOH per cell: ", [round(c.soh, 3) for c in cells])
+    print("Max pack temperature: %.2f C" % max(log["T"]))
+
+
+if __name__ == "__main__":
+    log, cells = run_simulation()
+    plot_results(log)
+    summarize(log, cells)
