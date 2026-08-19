@@ -1,0 +1,950 @@
+#include <Wire.h>
+#include <Adafruit_INA219.h>
+Adafruit_INA219 ina219;
+const int battSensePin = A0; // optional analog monitor (with divider)
+void setup() {
+  Serial.begin(115200);
+  ina219.begin();
+}
+void loop() {
+  float Vbus = ina219.getBusVoltage_V();      // voltage on sensor bus
+  float I_mA = ina219.getCurrent_mA();        // current in mA
+  Serial.print("Vbus:"); Serial.print(Vbus); Serial.print(" V, ");
+  Serial.print("I:"); Serial.print(I_mA/1000.0); Serial.println(" A");
+  delay(2000);
+}
+
+2nd phase:
+// MPPT controller (Perturb & Observe) for solar-assisted RC car
+// Requires: Adafruit_INA219 library
+#include <Wire.h>
+#include <Adafruit_INA219.h>
+
+Adafruit_INA219 ina_panel;   // measure panel voltage/current
+Adafruit_INA219 ina_batt;    // optional: measure battery voltage/current (or use ADC)
+const int pwmPin = 5;        // PWM to control converter gate (via driver)
+const int motorPwmPin = 6;   // motor throttle PWM (via motor driver)
+float duty = 0.5;            // 0..1 initial duty for converter
+const float step = 0.02;     // perturbation step
+float prevPower = 0.0;
+unsigned long lastMPPT = 0;
+const unsigned long MPPT_PERIOD = 800; // ms
+
+void setPWMduty(float d) {
+  if (d < 0.05) d = 0.05;
+  if (d > 0.95) d = 0.95;
+  int out = (int)(d * 255.0);
+  analogWrite(pwmPin, out);
+}
+
+void setup() {
+  Serial.begin(115200);
+  ina_panel.begin();
+  // ina_batt.begin(); // optional battery monitor if installed
+  pinMode(pwmPin, OUTPUT);
+  pinMode(motorPwmPin, OUTPUT);
+  analogWrite(pwmPin, (int)(duty*255));
+  analogWrite(motorPwmPin, 0);
+  delay(200);
+}
+
+void loop() {
+  unsigned long now = millis();
+  if (now - lastMPPT >= MPPT_PERIOD) {
+    lastMPPT = now;
+    // read panel
+    float Vp = ina_panel.getBusVoltage_V();
+    float Ip = ina_panel.getCurrent_mA() / 1000.0;
+    float Pp = Vp * Ip;
+
+    // first-time initialization
+    if (prevPower <= 0.0001) {
+      prevPower = Pp;
+    }
+
+    // try perturbing up
+    float testDuty = duty + step;
+    if (testDuty > 0.95) testDuty = 0.95;
+    setPWMduty(testDuty);
+    delay(250); // let converter settle
+    float Vp2 = ina_panel.getBusVoltage_V();
+    float Ip2 = ina_panel.getCurrent_mA() / 1000.0;
+    float Pp2 = Vp2 * Ip2;
+
+    if (Pp2 > Pp) {
+      // keep direction (increase)
+      duty = testDuty;
+      prevPower = Pp2;
+    } else {
+      // reverse direction
+      duty = duty - step;
+      if (duty < 0.05) duty = 0.05;
+      setPWMduty(duty);
+      delay(100);
+      float Vp3 = ina_panel.getBusVoltage_V();
+      float Ip3 = ina_panel.getCurrent_mA() / 1000.0;
+      prevPower = Vp3 * Ip3;
+    }
+
+    // telemetry
+    Serial.print("Vp:"); Serial.print(Vp2); Serial.print(" V, ");
+    Serial.print("Ip:"); Serial.print(Ip2); Serial.print(" A, ");
+    Serial.print("Pp:"); Serial.print(Pp2); Serial.print(" W, ");
+    Serial.print("duty:"); Serial.println(duty);
+  }
+
+  // Motor control (example throttle control)
+  int throttle = analogRead(A1) / 4; // read a potentiometer or remote control
+  analogWrite(motorPwmPin, throttle);
+
+  // Keep loop responsive
+  delay(10);
+}
+3rd phase
+// MPPT controller (Perturb & Observe) for solar-assisted RC car
+// Requires: Adafruit_INA219 library
+#include <Wire.h>
+#include <Adafruit_INA219.h>
+
+Adafruit_INA219 ina_panel;   // measure panel voltage/current
+Adafruit_INA219 ina_batt;    // optional: measure battery voltage/current (or use ADC)
+const int pwmPin = 5;        // PWM to control converter gate (via driver)
+const int motorPwmPin = 6;   // motor throttle PWM (via motor driver)
+float duty = 0.5;            // 0..1 initial duty for converter
+const float step = 0.02;     // perturbation step
+float prevPower = 0.0;
+unsigned long lastMPPT = 0;
+const unsigned long MPPT_PERIOD = 800; // ms
+
+void setPWMduty(float d) {
+  if (d < 0.05) d = 0.05;
+  if (d > 0.95) d = 0.95;
+  int out = (int)(d * 255.0);
+  analogWrite(pwmPin, out);
+}
+
+void setup() {
+  Serial.begin(115200);
+  ina_panel.begin();
+  // ina_batt.begin(); // optional battery monitor if installed
+  pinMode(pwmPin, OUTPUT);
+  pinMode(motorPwmPin, OUTPUT);
+  analogWrite(pwmPin, (int)(duty*255));
+  analogWrite(motorPwmPin, 0);
+  delay(200);
+}
+
+void loop() {
+  unsigned long now = millis();
+  if (now - lastMPPT >= MPPT_PERIOD) {
+    lastMPPT = now;
+    // read panel
+    float Vp = ina_panel.getBusVoltage_V();
+    float Ip = ina_panel.getCurrent_mA() / 1000.0;
+    float Pp = Vp * Ip;
+
+    // first-time initialization
+    if (prevPower <= 0.0001) {
+      prevPower = Pp;
+    }
+
+    // try perturbing up
+    float testDuty = duty + step;
+    if (testDuty > 0.95) testDuty = 0.95;
+    setPWMduty(testDuty);
+    delay(250); // let converter settle
+    float Vp2 = ina_panel.getBusVoltage_V();
+    float Ip2 = ina_panel.getCurrent_mA() / 1000.0;
+    float Pp2 = Vp2 * Ip2;
+
+    if (Pp2 > Pp) {
+      // keep direction (increase)
+      duty = testDuty;
+      prevPower = Pp2;
+    } else {
+      // reverse direction
+      duty = duty - step;
+      if (duty < 0.05) duty = 0.05;
+      setPWMduty(duty);
+      delay(100);
+      float Vp3 = ina_panel.getBusVoltage_V();
+      float Ip3 = ina_panel.getCurrent_mA() / 1000.0;
+      prevPower = Vp3 * Ip3;
+    }
+
+    // telemetry
+    Serial.print("Vp:"); Serial.print(Vp2); Serial.print(" V, ");
+    Serial.print("Ip:"); Serial.print(Ip2); Serial.print(" A, ");
+    Serial.print("Pp:"); Serial.print(Pp2); Serial.print(" W, ");
+    Serial.print("duty:"); Serial.println(duty);
+  }
+
+  // Motor control (example throttle control)
+  int throttle = analogRead(A1) / 4; // read a potentiometer or remote control
+  analogWrite(motorPwmPin, throttle);
+
+  // Keep loop responsive
+  delay(10);
+}
+
+4th phase
+# Simple solar-MPPT-battery-motor simulation (P&O MPPT)
+# Requires: numpy, matplotlib
+import numpy as np
+import matplotlib.pyplot as plt
+
+# simple PV model: Isc and Voc scaling with irradiance G (0..1)
+def pv_voltage_current(v, G=1.0, Voc=0.6*36, Isc=5.0): # example panel ~36 cells
+    # simplified I-V: I = Isc*G * (1 - exp((v - Voc)/(nVt)))
+    nVt = 0.1*Voc
+    I = Isc*G * (1 - np.exp((v - Voc)/nVt))
+    I[v>=Voc] = 0
+    return I
+
+# battery simple model
+class Battery:
+    def __init__(self, capacity_Ah=2.2, Vnom=7.4):
+        self.cap = capacity_Ah
+        self.Vnom = Vnom
+        self.soc = 0.9
+    def apply_current(self, I, dt): # I positive = charging (A), dt in hours
+        self.soc += I * dt / self.cap
+        self.soc = max(0.01, min(0.99, self.soc))
+    def voltage(self):
+        return self.Vnom * (0.9 + 0.2*(self.soc-0.5)) # crude
+
+# simulate MPPT P&O
+dt = 1.0/60/60 # 1 second in hours
+T = 3600 # simulate 1 hour (3600 sec)
+times = np.arange(0, T)
+G_profile = 0.8 + 0.2*np.sin(np.linspace(0, 6*np.pi, T)) # varying irradiance
+battery = Battery(2.2, 7.4)
+duty = 0.5
+step = 0.02
+hist = {'power':[], 'duty':[], 'Vpv':[], 'Ipv':[], 'soc':[]}
+
+for t in range(T):
+    G = max(0.05, G_profile[t])
+    # approximate converter: Vpv = Vpanel * (1 - duty*0.5) crude mapping
+    # better: assume converter steps down so Vpv ~ Vbattery / duty  (buck)
+    Vbat = battery.voltage()
+    Vpv = min(36.0, Vbat / max(0.05, duty)) # crude buck assumption
+    # compute panel current from simple model at Vpv
+    Ipv = pv_voltage_current(Vpv, G=G, Voc=21, Isc=2.5) # adjust Voc/Isc to panel
+    Ppv = Vpv * Ipv
+    # perturb & observe every 2s
+    if t % 2 == 0:
+        testDuty = min(0.95, max(0.05, duty + step))
+        Vpv_test = min(36.0, Vbat / max(0.05, testDuty))
+        Ipv_test = pv_voltage_current(Vpv_test, G=G, Voc=21, Isc=2.5)
+        Ptest = Vpv_test * Ipv_test
+        if Ptest > Ppv:
+            duty = testDuty
+        else:
+            duty = max(0.05, duty - step)
+    # power delivered to battery approx Ppv
+    battery.apply_current(Ppv / battery.Vnom, dt)
+    hist['power'].append(Ppv)
+    hist['duty'].append(duty)
+    hist['Vpv'].append(Vpv)
+    hist['Ipv'].append(Ipv)
+    hist['soc'].append(battery.soc)
+
+# plots
+plt.figure(figsize=(10,6))
+plt.subplot(3,1,1)
+plt.plot(hist['power']); plt.ylabel('Ppv (W)')
+plt.subplot(3,1,2)
+plt.plot(hist['duty']); plt.ylabel('Duty')
+plt.subplot(3,1,3)
+plt.plot(hist['soc']); plt.ylabel('Battery SOC')
+plt.xlabel('seconds')
+plt.tight_layout()
+plt.show()
+
+5th phase
+/*
+  name=esp32_mppt_sd_logger.ino
+
+  ESP32 Solar MPPT (Perturb & Observe) + Motor Control + INA219 telemetry + SD CSV logging
+
+  Dependencies:
+   - Adafruit INA219 library
+   - SPI, SD (Arduino core for ESP32)
+
+  Target hardware:
+   - ESP32 (Arduino core)
+   - INA219 I2C current/voltage sensor (panel side)
+   - Off-the-shelf adjustable buck/MPPT module controlled by PWM input (gate driver)
+   - 2S LiPo battery (7.4V) with BMS
+   - Motor driver (accepts PWM throttle from ESP32)
+   - SD card module (SPI)
+
+  Wiring/pin mapping is below in the README section.
+*/
+
+#include <Wire.h>
+#include <Adafruit_INA219.h>
+#include <SPI.h>
+#include <SD.h>
+
+// === CONFIGURATION ===
+
+// I2C (INA219)
+Adafruit_INA219 ina_panel;
+
+// ADC battery sense (voltage divider to ADC pin)
+const int BAT_ADC_PIN = 35; // ADC1_CH7 (input-only)
+const float R1 = 100000.0;  // top resistor (ohms)
+const float R2 = 33000.0;   // bottom resistor (ohms); choose such that Vbat_max maps < 3.3V
+const float ADC_REF_V = 3.3; // ADC reference
+const int ADC_MAX = 4095;    // 12-bit ADC for ESP32 (0..4095) by default
+
+// SD card SPI pins (standard ESP32 SPI)
+const int SD_CS = 5;   // chip select for SD card
+const int SD_MOSI = 23;
+const int SD_MISO = 19;
+const int SD_SCK = 18;
+
+// PWM / LEDC for MPPT converter control and motor throttle
+const int MPPT_PWM_PIN = 25;   // PWM to converter/gate driver
+const int MOTOR_PWM_PIN = 26;  // PWM to motor driver
+
+const int MPPT_LEDC_CHANNEL = 0;
+const int MOTOR_LEDC_CHANNEL = 1;
+const int PWM_FREQ_MPPT = 20000; // 20 kHz for power converter gate input (tune per module)
+const int PWM_FREQ_MOTOR = 5000; // 5 kHz for motor driver
+const int PWM_RES_BITS = 10;     // 10-bit resolution (0..1023)
+const int PWM_MAX = (1 << PWM_RES_BITS) - 1;
+
+// MPPT parameters
+float mpptDuty = 0.5; // 0..1 initial duty
+const float MPPT_MIN_DUTY = 0.05;
+const float MPPT_MAX_DUTY = 0.95;
+float mpptStep = 0.02;   // step size for perturb & observe (tune)
+unsigned long MPPT_PERIOD = 800; // ms between MPPT iterations (tune)
+
+// Logging
+unsigned long LOG_INTERVAL = 1000; // ms
+File logFile;
+const char *LOG_FILE_NAME = "/mppt_log.csv";
+
+// Telemetry smoothing
+const int SMOOTH_N = 4;
+
+// === END CONFIG ===
+
+unsigned long lastMpptMillis = 0;
+unsigned long lastLogMillis = 0;
+float prevPower = 0.0;
+float prevVoltage = 0.0;
+float dutyDirection = 1.0; // +1 = increase, -1 = decrease
+
+// Helper: set MPPT duty (0..1)
+void setMpptDuty(float d) {
+  if (d < MPPT_MIN_DUTY) d = MPPT_MIN_DUTY;
+  if (d > MPPT_MAX_DUTY) d = MPPT_MAX_DUTY;
+  mpptDuty = d;
+  int pwmVal = (int)(mpptDuty * PWM_MAX);
+  ledcWrite(MPPT_LEDC_CHANNEL, pwmVal);
+}
+
+// Helper: set motor throttle (0..1)
+void setMotorThrottle(float t) {
+  if (t < 0.0) t = 0.0;
+  if (t > 1.0) t = 1.0;
+  int pwmVal = (int)(t * PWM_MAX);
+  ledcWrite(MOTOR_LEDC_CHANNEL, pwmVal);
+}
+
+// read battery voltage via ADC and divider
+float readBatteryVoltage() {
+  uint16_t raw = analogRead(BAT_ADC_PIN);
+  float vAdc = (float)raw / ADC_MAX * ADC_REF_V;
+  float vBat = vAdc * (R1 + R2) / R2;
+  return vBat;
+}
+
+// Rough coulomb-free SOC estimate from voltage for 2S LiPo (approx)
+float estimateSOC(float vBat) {
+  // 2S nominal 7.4V: per-cell approx map (this is approximate for LiPo)
+  float perCellV = vBat / 2.0;
+  // Map 3.2V -> 0%, 3.7V -> 50%, 4.2V -> 100%
+  float soc = (perCellV - 3.2) / (4.2 - 3.2);
+  if (soc < 0) soc = 0;
+  if (soc > 1) soc = 1;
+  return soc;
+}
+
+void sdInitAndHeader() {
+  SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+  if (!SD.begin(SD_CS)) {
+    Serial.println("SD begin failed!");
+    return;
+  }
+  // create file and header if not exists
+  if (!SD.exists(LOG_FILE_NAME)) {
+    logFile = SD.open(LOG_FILE_NAME, FILE_WRITE);
+    if (logFile) {
+      logFile.println("timestamp_ms,Vpanel(V),Ipanel(A),Ppanel(W),Vbat(V),soc,duty,throttle");
+      logFile.flush();
+      logFile.close();
+    }
+  }
+}
+
+void appendLog(unsigned long tms, float Vp, float Ip, float Pp, float Vbat, float soc, float duty, float throttle) {
+  if (!SD.begin(SD_CS)) {
+    // do nothing if SD fails (avoid spamming)
+    return;
+  }
+  logFile = SD.open(LOG_FILE_NAME, FILE_APPEND);
+  if (logFile) {
+    logFile.print(tms); logFile.print(',');
+    logFile.print(Vp, 3); logFile.print(',');
+    logFile.print(Ip, 3); logFile.print(',');
+    logFile.print(Pp, 3); logFile.print(',');
+    logFile.print(Vbat, 3); logFile.print(',');
+    logFile.print(soc, 3); logFile.print(',');
+    logFile.print(duty, 3); logFile.print(',');
+    logFile.println(throttle, 3);
+    logFile.flush();
+    logFile.close();
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(100);
+
+  // init I2C for INA219
+  Wire.begin(21, 22); // SDA, SCL
+  if (!ina_panel.begin()) {
+    Serial.println("Failed to find INA219 chip");
+    while (1) delay(10);
+  }
+  ina_panel.setCalibration_32V_2A(); // tune if using higher currents
+
+  // ADC setup
+  analogReadResolution(12); // 0..4095
+  pinMode(BAT_ADC_PIN, INPUT);
+
+  // PWM (LEDC)
+  ledcSetup(MPPT_LEDC_CHANNEL, PWM_FREQ_MPPT, PWM_RES_BITS);
+  ledcAttachPin(MPPT_PWM_PIN, MPPT_LEDC_CHANNEL);
+  ledcSetup(MOTOR_LEDC_CHANNEL, PWM_FREQ_MOTOR, PWM_RES_BITS);
+  ledcAttachPin(MOTOR_PWM_PIN, MOTOR_LEDC_CHANNEL);
+
+  setMpptDuty(mpptDuty);
+  setMotorThrottle(0.0);
+
+  // SD init
+  sdInitAndHeader();
+
+  Serial.println("ESP32 MPPT logger started.");
+}
+
+void loop() {
+  unsigned long now = millis();
+
+  // MPPT loop
+  if (now - lastMpptMillis >= MPPT_PERIOD) {
+    lastMpptMillis = now;
+
+    // Read panel (INA219)
+    float Vp = ina_panel.getBusVoltage_V();           // bus voltage sensed (V)
+    float Ip_mA = ina_panel.getCurrent_mA();          // mA
+    float Ip = Ip_mA / 1000.0;                        // A
+    float Pp = Vp * Ip;                               // W
+
+    // Initialize prevPower if first time
+    if (prevPower == 0.0) {
+      prevPower = Pp;
+      prevVoltage = Vp;
+    }
+
+    // Perturb & Observe
+    float testDuty = mpptDuty + dutyDirection * mpptStep;
+    if (testDuty > MPPT_MAX_DUTY) testDuty = MPPT_MAX_DUTY;
+    if (testDuty < MPPT_MIN_DUTY) testDuty = MPPT_MIN_DUTY;
+    setMpptDuty(testDuty);
+    delay(200); // allow converter to settle (tune per hardware)
+    // measure again
+    float Vp2 = ina_panel.getBusVoltage_V();
+    float Ip2 = ina_panel.getCurrent_mA() / 1000.0;
+    float Pp2 = Vp2 * Ip2;
+
+    if (Pp2 > Pp) {
+      // power increased -> keep direction
+      mpptDuty = testDuty;
+      prevPower = Pp2;
+    } else {
+      // power decreased -> reverse direction
+      dutyDirection = -dutyDirection;
+      mpptDuty = mpptDuty + dutyDirection * mpptStep;
+      if (mpptDuty < MPPT_MIN_DUTY) mpptDuty = MPPT_MIN_DUTY;
+      if (mpptDuty > MPPT_MAX_DUTY) mpptDuty = MPPT_MAX_DUTY;
+      setMpptDuty(mpptDuty);
+      delay(50);
+      prevPower = ina_panel.getBusVoltage_V() * (ina_panel.getCurrent_mA()/1000.0);
+    }
+
+    // For telemetry print
+    float Vbat = readBatteryVoltage();
+    float soc = estimateSOC(Vbat);
+    Serial.print("Vp:"); Serial.print(Vp2,3); Serial.print("V ");
+    Serial.print("Ip:"); Serial.print(Ip2,3); Serial.print("A ");
+    Serial.print("P:"); Serial.print(Pp2,3); Serial.print("W ");
+    Serial.print("Vbat:"); Serial.print(Vbat,3); Serial.print("V ");
+    Serial.print("soc:"); Serial.print(soc,3); Serial.print(" ");
+    Serial.print("duty:"); Serial.println(mpptDuty,3);
+  }
+
+  // Logging
+  if (now - lastLogMillis >= LOG_INTERVAL) {
+    lastLogMillis = now;
+    float Vp = ina_panel.getBusVoltage_V();
+    float Ip = ina_panel.getCurrent_mA() / 1000.0;
+    float Pp = Vp * Ip;
+    float Vbat = readBatteryVoltage();
+    float soc = estimateSOC(Vbat);
+    float duty = mpptDuty;
+    // throttle example: set from a potentiometer if wired, else 0.2
+    float throttle = 0.25; // change/integrate input reading as needed
+    setMotorThrottle(throttle);
+
+    unsigned long tms = millis();
+    appendLog(tms, Vp, Ip, Pp, Vbat, soc, duty, throttle);
+  }
+
+  // Keep loop responsive
+  delay(10);
+}
+6th phase
+/*
+  name=esp32_mppt_webui.ino
+
+  ESP32 Solar MPPT (Perturb & Observe) + Motor Control + INA219 telemetry + SD CSV logging
+  + Simple Web UI (JSON telemetry + HTML dashboard)
+
+  Dependencies:
+   - Adafruit INA219 library
+   - SPI, SD (Arduino core for ESP32)
+   - WiFi, WebServer (ESP32 Arduino core)
+
+  Configure:
+   - Set WIFI_SSID and WIFI_PASS below (or leave blank to force AP fallback)
+*/
+
+#include <Wire.h>
+#include <Adafruit_INA219.h>
+#include <SPI.h>
+#include <SD.h>
+#include <WiFi.h>
+#include <WebServer.h>
+
+// === WIFI CONFIG ===
+const char* WIFI_SSID = "your_ssid_here";    // set your Wi-Fi SSID or leave empty to force AP mode
+const char* WIFI_PASS = "your_password_here";// set your Wi-Fi password
+const char* AP_SSID   = "ESP32-MPPT";
+const char* AP_PASS   = "mppt12345";
+
+// Web server
+WebServer server(80);
+
+// === CONFIGURATION ===
+
+// I2C (INA219)
+Adafruit_INA219 ina_panel;
+
+// ADC battery sense (voltage divider to ADC pin)
+const int BAT_ADC_PIN = 35; // ADC1_CH7 (input-only)
+const float R1 = 100000.0;  // top resistor (ohms)
+const float R2 = 33000.0;   // bottom resistor (ohms); choose such that Vbat_max maps < 3.3V
+const float ADC_REF_V = 3.3; // ADC reference
+const int ADC_MAX = 4095;    // 12-bit ADC for ESP32 (0..4095) by default
+
+// SD card SPI pins (standard ESP32 SPI)
+const int SD_CS = 5;   // chip select for SD card
+const int SD_MOSI = 23;
+const int SD_MISO = 19;
+const int SD_SCK = 18;
+
+// PWM / LEDC for MPPT converter control and motor throttle
+const int MPPT_PWM_PIN = 25;   // PWM to converter/gate driver
+const int MOTOR_PWM_PIN = 26;  // PWM to motor driver
+
+const int MPPT_LEDC_CHANNEL = 0;
+const int MOTOR_LEDC_CHANNEL = 1;
+const int PWM_FREQ_MPPT = 20000; // 20 kHz for power converter gate input (tune per module)
+const int PWM_FREQ_MOTOR = 5000; // 5 kHz for motor driver
+const int PWM_RES_BITS = 10;     // 10-bit resolution (0..1023)
+const int PWM_MAX = (1 << PWM_RES_BITS) - 1;
+
+// MPPT parameters
+float mpptDuty = 0.5; // 0..1 initial duty
+const float MPPT_MIN_DUTY = 0.05;
+const float MPPT_MAX_DUTY = 0.95;
+float mpptStep = 0.02;   // step size for perturb & observe (tune)
+unsigned long MPPT_PERIOD = 800; // ms between MPPT iterations (tune)
+
+// Logging
+unsigned long LOG_INTERVAL = 1000; // ms
+File logFile;
+const char *LOG_FILE_NAME = "/mppt_log.csv";
+
+// Telemetry variables (read by web handler)
+volatile float telemetry_Vp = 0.0;
+volatile float telemetry_Ip = 0.0;
+volatile float telemetry_Pp = 0.0;
+volatile float telemetry_Vbat = 0.0;
+volatile float telemetry_soc = 0.0;
+volatile float telemetry_duty = 0.0;
+volatile float telemetry_throttle = 0.0;
+volatile unsigned long telemetry_tms = 0;
+
+unsigned long lastMpptMillis = 0;
+unsigned long lastLogMillis = 0;
+float prevPower = 0.0;
+float prevVoltage = 0.0;
+float dutyDirection = 1.0; // +1 = increase, -1 = decrease
+
+// Helper: set MPPT duty (0..1)
+void setMpptDuty(float d) {
+  if (d < MPPT_MIN_DUTY) d = MPPT_MIN_DUTY;
+  if (d > MPPT_MAX_DUTY) d = MPPT_MAX_DUTY;
+  mpptDuty = d;
+  int pwmVal = (int)(mpptDuty * PWM_MAX);
+  ledcWrite(MPPT_LEDC_CHANNEL, pwmVal);
+}
+
+// Helper: set motor throttle (0..1)
+void setMotorThrottle(float t) {
+  if (t < 0.0) t = 0.0;
+  if (t > 1.0) t = 1.0;
+  int pwmVal = (int)(t * PWM_MAX);
+  ledcWrite(MOTOR_LEDC_CHANNEL, pwmVal);
+}
+
+// read battery voltage via ADC and divider
+float readBatteryVoltage() {
+  uint16_t raw = analogRead(BAT_ADC_PIN);
+  float vAdc = (float)raw / ADC_MAX * ADC_REF_V;
+  float vBat = vAdc * (R1 + R2) / R2;
+  return vBat;
+}
+
+// Rough coulomb-free SOC estimate from voltage for 2S LiPo (approx)
+float estimateSOC(float vBat) {
+  float perCellV = vBat / 2.0;
+  float soc = (perCellV - 3.2) / (4.2 - 3.2);
+  if (soc < 0) soc = 0;
+  if (soc > 1) soc = 1;
+  return soc;
+}
+
+void sdInitAndHeader() {
+  SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+  if (!SD.begin(SD_CS)) {
+    Serial.println("SD begin failed!");
+    return;
+  }
+  // create file and header if not exists
+  if (!SD.exists(LOG_FILE_NAME)) {
+    logFile = SD.open(LOG_FILE_NAME, FILE_WRITE);
+    if (logFile) {
+      logFile.println("timestamp_ms,Vpanel(V),Ipanel(A),Ppanel(W),Vbat(V),soc,duty,throttle");
+      logFile.flush();
+      logFile.close();
+    }
+  }
+}
+
+void appendLog(unsigned long tms, float Vp, float Ip, float Pp, float Vbat, float soc, float duty, float throttle) {
+  if (!SD.begin(SD_CS)) {
+    // do nothing if SD fails
+    return;
+  }
+  logFile = SD.open(LOG_FILE_NAME, FILE_APPEND);
+  if (logFile) {
+    logFile.print(tms); logFile.print(',');
+    logFile.print(Vp, 3); logFile.print(',');
+    logFile.print(Ip, 3); logFile.print(',');
+    logFile.print(Pp, 3); logFile.print(',');
+    logFile.print(Vbat, 3); logFile.print(',');
+    logFile.print(soc, 3); logFile.print(',');
+    logFile.print(duty, 3); logFile.print(',');
+    logFile.println(throttle, 3);
+    logFile.flush();
+    logFile.close();
+  }
+}
+
+// --- Web UI content ---
+const char INDEX_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32 MPPT Dashboard</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 12px; background:#f7f7f7; color:#222 }
+    .card { background: #fff; padding:10px 12px; margin-bottom:10px; border-radius:6px; box-shadow:0 1px 3px rgba(0,0,0,0.08) }
+    .row { display:flex; justify-content:space-between; margin:6px 0; }
+    .label { color:#666 }
+    .val { font-weight:600 }
+    .title { font-size:18px; margin-bottom:6px }
+    .small { font-size:12px; color:#888 }
+    .btn { padding:6px 10px; background:#007bff; color:white; border-radius:4px; text-decoration:none }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="title">ESP32 MPPT Dashboard</div>
+    <div class="row"><div class="label">IP</div><div id="ip" class="val">-</div></div>
+    <div class="row"><div class="label">Timestamp</div><div id="tms" class="val">-</div></div>
+  </div>
+
+  <div class="card">
+    <div class="small">Panel</div>
+    <div class="row"><div class="label">Vpanel</div><div id="vp" class="val">- V</div></div>
+    <div class="row"><div class="label">Ipanel</div><div id="ipanel" class="val">- A</div></div>
+    <div class="row"><div class="label">Ppanel</div><div id="ppanel" class="val">- W</div></div>
+  </div>
+
+  <div class="card">
+    <div class="small">Battery</div>
+    <div class="row"><div class="label">Vbat</div><div id="vbat" class="val">- V</div></div>
+    <div class="row"><div class="label">SOC</div><div id="soc" class="val">- %</div></div>
+  </div>
+
+  <div class="card">
+    <div class="small">Control</div>
+    <div class="row"><div class="label">MPPT duty</div><div id="duty" class="val">-</div></div>
+    <div class="row"><div class="label">Throttle</div><div id="throttle" class="val">-</div></div>
+  </div>
+
+  <div style="text-align:center">
+    <a id="download" class="btn" href="/mppt_log.csv" target="_blank">Download log</a>
+  </div>
+
+<script>
+async function update() {
+  try {
+    const res = await fetch('/telemetry');
+    if (!res.ok) throw 'fetch failed';
+    const j = await res.json();
+    document.getElementById('vp').innerText = j.Vp.toFixed(3) + ' V';
+    document.getElementById('ipanel').innerText = j.Ip.toFixed(3) + ' A';
+    document.getElementById('ppanel').innerText = j.Pp.toFixed(3) + ' W';
+    document.getElementById('vbat').innerText = j.Vbat.toFixed(3) + ' V';
+    document.getElementById('soc').innerText = (j.soc*100).toFixed(1) + ' %';
+    document.getElementById('duty').innerText = j.duty.toFixed(3);
+    document.getElementById('throttle').innerText = j.throttle.toFixed(3);
+    document.getElementById('tms').innerText = new Date(j.tms).toLocaleString();
+    document.getElementById('ip').innerText = location.hostname;
+  } catch (e) {
+    console.log('update err', e);
+  }
+}
+setInterval(update, 1000);
+update();
+</script>
+</body>
+</html>
+)rawliteral";
+
+// --- HTTP handlers ---
+void handleIndex() {
+  server.send_P(200, "text/html", INDEX_HTML);
+}
+
+void handleTelemetry() {
+  // copy volatile telemetry into local to avoid partial reads
+  float Vp = telemetry_Vp;
+  float Ip = telemetry_Ip;
+  float Pp = telemetry_Pp;
+  float Vbat = telemetry_Vbat;
+  float soc = telemetry_soc;
+  float duty = telemetry_duty;
+  float throttle = telemetry_throttle;
+  unsigned long tms = telemetry_tms;
+
+  String s = "{";
+  s += "\"Vp\":" + String(Vp, 6) + ",";
+  s += "\"Ip\":" + String(Ip, 6) + ",";
+  s += "\"Pp\":" + String(Pp, 6) + ",";
+  s += "\"Vbat\":" + String(Vbat, 6) + ",";
+  s += "\"soc\":" + String(soc, 6) + ",";
+  s += "\"duty\":" + String(duty, 6) + ",";
+  s += "\"throttle\":" + String(throttle, 6) + ",";
+  s += "\"tms\":" + String(tms);
+  s += "}";
+  server.send(200, "application/json", s);
+}
+
+// Serve SD log file direct (simple)
+void handleLogDownload() {
+  if (SD.exists(LOG_FILE_NAME)) {
+    File f = SD.open(LOG_FILE_NAME);
+    server.streamFile(f, "text/csv");
+    f.close();
+  } else {
+    server.send(404, "text/plain", "Log not found");
+  }
+}
+
+// --- Main setup & loop ---
+void startAPMode() {
+  WiFi.softAP(AP_SSID, AP_PASS);
+  IPAddress IP = WiFi.softAPIP();
+  Serial.printf("Started AP mode. Connect to SSID '%s' (password: %s). IP: %s\n", AP_SSID, AP_PASS, IP.toString().c_str());
+}
+
+void startStationMode() {
+  Serial.printf("Connecting to Wi-Fi SSID '%s'...\n", WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  unsigned long start = millis();
+  while (millis() - start < 15000) { // 15s timeout
+    if (WiFi.status() == WL_CONNECTED) break;
+    delay(200);
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("Connected. IP: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("Failed to connect to STA. Falling back to AP mode.");
+    startAPMode();
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(100);
+
+  // init I2C for INA219
+  Wire.begin(21, 22); // SDA, SCL
+  if (!ina_panel.begin()) {
+    Serial.println("Failed to find INA219 chip");
+    while (1) delay(10);
+  }
+  ina_panel.setCalibration_32V_2A(); // tune if using higher currents
+
+  // ADC setup
+  analogReadResolution(12); // 0..4095
+  pinMode(BAT_ADC_PIN, INPUT);
+
+  // PWM (LEDC)
+  ledcSetup(MPPT_LEDC_CHANNEL, PWM_FREQ_MPPT, PWM_RES_BITS);
+  ledcAttachPin(MPPT_PWM_PIN, MPPT_LEDC_CHANNEL);
+  ledcSetup(MOTOR_LEDC_CHANNEL, PWM_FREQ_MOTOR, PWM_RES_BITS);
+  ledcAttachPin(MOTOR_PWM_PIN, MOTOR_LEDC_CHANNEL);
+
+  setMpptDuty(mpptDuty);
+  setMotorThrottle(0.0);
+
+  // SD init
+  sdInitAndHeader();
+
+  // WiFi init: try STA if credentials provided, else AP
+  if (strlen(WIFI_SSID) > 0) {
+    startStationMode();
+    if (WiFi.status() != WL_CONNECTED) {
+      // AP already started in startStationMode() fallback
+    }
+  } else {
+    startAPMode();
+  }
+
+  // Web server routes
+  server.on("/", handleIndex);
+  server.on("/telemetry", handleTelemetry);
+  server.on("/mppt_log.csv", handleLogDownload);
+  server.begin();
+  Serial.println("HTTP server started.");
+
+  Serial.println("ESP32 MPPT web UI started.");
+}
+
+void loop() {
+  unsigned long now = millis();
+  server.handleClient(); // handle incoming clients
+
+  // MPPT loop
+  if (now - lastMpptMillis >= MPPT_PERIOD) {
+    lastMpptMillis = now;
+
+    // Read panel (INA219)
+    float Vp = ina_panel.getBusVoltage_V();           // bus voltage sensed (V)
+    float Ip_mA = ina_panel.getCurrent_mA();          // mA
+    float Ip = Ip_mA / 1000.0;                        // A
+    float Pp = Vp * Ip;                               // W
+
+    // Initialize prevPower if first time
+    if (prevPower == 0.0) {
+      prevPower = Pp;
+      prevVoltage = Vp;
+    }
+
+    // Perturb & Observe
+    float testDuty = mpptDuty + dutyDirection * mpptStep;
+    if (testDuty > MPPT_MAX_DUTY) testDuty = MPPT_MAX_DUTY;
+    if (testDuty < MPPT_MIN_DUTY) testDuty = MPPT_MIN_DUTY;
+    setMpptDuty(testDuty);
+    delay(200); // allow converter to settle (tune per hardware)
+    // measure again
+    float Vp2 = ina_panel.getBusVoltage_V();
+    float Ip2 = ina_panel.getCurrent_mA() / 1000.0;
+    float Pp2 = Vp2 * Ip2;
+
+    if (Pp2 > Pp) {
+      // power increased -> keep direction
+      mpptDuty = testDuty;
+      prevPower = Pp2;
+    } else {
+      // power decreased -> reverse direction
+      dutyDirection = -dutyDirection;
+      mpptDuty = mpptDuty + dutyDirection * mpptStep;
+      if (mpptDuty < MPPT_MIN_DUTY) mpptDuty = MPPT_MIN_DUTY;
+      if (mpptDuty > MPPT_MAX_DUTY) mpptDuty = MPPT_MAX_DUTY;
+      setMpptDuty(mpptDuty);
+      delay(50);
+      prevPower = ina_panel.getBusVoltage_V() * (ina_panel.getCurrent_mA()/1000.0);
+    }
+
+    // For telemetry
+    float Vbat = readBatteryVoltage();
+    float soc = estimateSOC(Vbat);
+    float throttle = 0.25; // example throttle (replace with real input if needed)
+
+    // Update volatile telemetry (atomic-ish)
+    telemetry_Vp = Vp2;
+    telemetry_Ip = Ip2;
+    telemetry_Pp = Pp2;
+    telemetry_Vbat = Vbat;
+    telemetry_soc = soc;
+    telemetry_duty = mpptDuty;
+    telemetry_throttle = throttle;
+    telemetry_tms = millis();
+
+    Serial.printf("Vp:%.3f V Ip:%.3f A P:%.3f W Vbat:%.3f soc:%.3f duty:%.3f\n", Vp2, Ip2, Pp2, Vbat, soc, mpptDuty);
+  }
+
+  // Logging
+  if (now - lastLogMillis >= LOG_INTERVAL) {
+    lastLogMillis = now;
+    float Vp = telemetry_Vp;
+    float Ip = telemetry_Ip;
+    float Pp = telemetry_Pp;
+    float Vbat = telemetry_Vbat;
+    float soc = telemetry_soc;
+    float duty = telemetry_duty;
+    float throttle = telemetry_throttle;
+    unsigned long tms = telemetry_tms;
+    appendLog(tms, Vp, Ip, Pp, Vbat, soc, duty, throttle);
+    // set throttle (apply to motor)
+    setMotorThrottle(throttle);
+  }
+
+  delay(10);
+}
